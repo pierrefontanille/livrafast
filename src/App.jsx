@@ -49,6 +49,45 @@ let DefaultIcon = L.icon({
 });
 L.Marker.prototype.options.icon = DefaultIcon;
 
+// --- OSRM Routing Function ---
+const fetchOSRMRoute = async (points) => {
+  if (points.length < 2) return [];
+  
+  const coordinates = points.map(p => `${p.lng},${p.lat}`).join(';');
+  const url = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=polyline`;
+  
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+      // Leaflet-ready decoding (using simple decoding if needed, or Leaflet can handle polylines)
+      // Actually, OSRM returns polyline by default. 
+      // We'll use polyline decoding to get lat/lng pairs.
+      return decodePolyline(data.routes[0].geometry);
+    }
+  } catch (error) {
+    console.error("OSRM Route error:", error);
+  }
+  return [];
+};
+
+// Polyline decoding helper (Google/OSRM algorithm)
+function decodePolyline(str, precision = 5) {
+  let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null, latchange, lngchange, factor = Math.pow(10, precision);
+  while (index < str.length) {
+    byte = null; shift = 0; result = 0;
+    do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+    latchange = ((result & 1) ? ~(result >> 1) : (result >> 1)); lat += latchange;
+    byte = null; shift = 0; result = 0;
+    do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+    lngchange = ((result & 1) ? ~(result >> 1) : (result >> 1)); lng += lngchange;
+    coordinates.push([lat / factor, lng / factor]);
+  }
+  return coordinates;
+}
+
+
 // --- Google Maps Integration ---
 const GOOGLE_MAPS_API_KEY = "VOTRE_CLE_API_GOOGLE_MAPS"; // Placeholder
 
@@ -158,6 +197,34 @@ const MapView = ({ stops, currentStep, userLocation, onOptimize, geocodingStatus
 // --- Leaflet (OpenStreetMap) Alternative ---
 const LeafletMap = ({ stops, userLocation, onOptimize, geocodingStatus, isGeocoding }) => {
   const [center, setCenter] = React.useState([48.8566, 2.3522]); 
+  const [routePath, setRoutePath] = React.useState([]);
+  const [isRouting, setIsRouting] = React.useState(false);
+
+  const coords = stops
+    .map((s, i) => ({ ...s, originalIndex: i }))
+    .filter(s => s.lat && s.lng && !s.delivered);
+
+  // Update route when stops change
+  useEffect(() => {
+    const updateRoute = async () => {
+      if (coords.length > 0) {
+        setIsRouting(true);
+        const points = userLocation ? [{ lat: userLocation.lat, lng: userLocation.lng }, ...coords] : coords;
+        const path = await fetchOSRMRoute(points);
+        if (path && path.length > 0) {
+          setRoutePath(path);
+        } else {
+          // Fallback to straight lines if OSRM fails
+          setRoutePath(points.map(p => [p.lat, p.lng]));
+        }
+        setIsRouting(false);
+      } else {
+        setRoutePath([]);
+      }
+    };
+    
+    updateRoute();
+  }, [stops, userLocation]);
 
   // Center the map on user location or first stop
   useEffect(() => {
@@ -175,9 +242,6 @@ const LeafletMap = ({ stops, userLocation, onOptimize, geocodingStatus, isGeocod
     }
   };
 
-  const coords = stops
-    .map((s, i) => ({ ...s, originalIndex: i }))
-    .filter(s => s.lat && s.lng && !s.delivered);
     
   const canOptimize = userLocation && coords.length === stops.filter(s => !s.delivered).length && coords.length > 1;
   
@@ -215,6 +279,12 @@ const LeafletMap = ({ stops, userLocation, onOptimize, geocodingStatus, isGeocod
           >
             <TrendingUp size={12} /> Optimiser le parcours
           </button>
+        )}
+
+        {isRouting && (
+          <div style={{ color: 'var(--primary)', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Clock size={12} className="animate-spin" /> Calcul de l'itinéraire route...
+          </div>
         )}
 
         {geocodingStatus.failed.length > 0 && (
@@ -277,12 +347,9 @@ const LeafletMap = ({ stops, userLocation, onOptimize, geocodingStatus, isGeocod
           );
         })}
         
-        {coords.length > 0 && (
+        {routePath.length > 0 && (
           <LeafletPolyline 
-            positions={[
-              ...(userLocation ? [[userLocation.lat, userLocation.lng]] : []),
-              ...coords.map(c => [c.lat, c.lng])
-            ]} 
+            positions={routePath} 
             color="#3b82f6" 
             weight={5} 
             opacity={0.8} 
@@ -542,7 +609,10 @@ function HomeView({ onStart }) {
           <Navigation size={42} strokeWidth={2.5} />
         </div>
       </div>
-      <h1 style={{ fontSize: '2.5rem', marginBottom: 8 }}>LivraFast</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 8 }}>
+        <h1 style={{ fontSize: '2.5rem', marginBottom: 0 }}>LivraFast</h1>
+        <span style={{ background: 'var(--primary)', color: 'white', padding: '4px 10px', borderRadius: 8, fontSize: '0.9rem', fontWeight: 700 }}>v2</span>
+      </div>
       <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem', marginBottom: 48 }}>
         Planification intelligente d'itinéraires pour livreurs indépendants.
       </p>
