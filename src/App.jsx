@@ -712,7 +712,7 @@ function ImportView({ onBack, onComplete }) {
         <div style={{ color: 'var(--primary)', marginBottom: 12 }}><Plus size={32} /></div>
         <div style={{ fontWeight: 600, marginBottom: 4 }}>Importer un fichier .csv</div>
         <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 20 }}>Liste d'adresses en format colonnes</div>
-        <input type="file" accept=".csv,.txt" style={{ display: 'none' }} id="csv-upload" onChange={handleFileUpload} />
+        <input type="file" accept=".csv,text/csv,application/vnd.ms-excel,text/plain,.txt" style={{ display: 'none' }} id="csv-upload" onChange={handleFileUpload} />
         <label htmlFor="csv-upload" className="btn btn-secondary" style={{ width: '100%' }}>
           Choisir un fichier
         </label>
